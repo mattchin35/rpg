@@ -1,91 +1,114 @@
-# this is the class for creating visual gratings on the RPi4. It uses a slightly-modified
-# version of Bill Connelly's rpg library (located here: https://github.com/SjulsonLab/rpg.git)
-# that enables the visual gratings to be delivered in a separate process.
-# To build your visual grating files, look at the scripts in rpg/examples
-#
-# Luke Sjulson, 2021-01-27
-#
-# TODO: make show_random() method to show a random grating from the list
+import logging
+import time
+from collections import OrderedDict
+from multiprocessing import Process, Queue
+from pathlib import Path
+from typing import Dict, Optional
+
+from base_classes import VisualStimBase
 
 import rpg
-import time
-import logging
-import os
-from collections import OrderedDict
-from icecream import ic
-from multiprocessing import Process, Queue
-import queue
-import sys
-sys.path.append('/home/pi/RPi4_behavior_boxes')
-from essential.base_classes import VisualStimBase
-from typing import List, Tuple
 
 
 class VisualStim(VisualStimBase):
-
     def __init__(self, session_info):
         self.session_info = session_info
-        self.gratings = OrderedDict()
-        self.myscreen = rpg.Screen()
-        self.load_session_gratings()
+        self.gratings: Dict[str, object] = OrderedDict()
+        self.grating_paths: Dict[str, str] = OrderedDict()
+        self.myscreen: Optional[rpg.Screen] = None
         self.active_process = None
         self.presenter_commands = Queue()
         self.stimulus_commands = Queue()
-        logging.info(";" + str(time.time()) + ";[initialization];screen_opened;")
+        self.load_session_gratings()
+        logging.info(";%s;[initialization];visualstim_created;", time.time())
+
+    def _ensure_screen(self) -> rpg.Screen:
+        if self.myscreen is None:
+            self.myscreen = rpg.Screen(
+                resolution=self.session_info["screen_resolution"],
+                background=self.session_info["gray_level"],
+            )
+        return self.myscreen
+
+    def _ensure_loaded_grating(self, grating_name: str):
+        if grating_name not in self.gratings:
+            screen = self._ensure_screen()
+            self.gratings[grating_name] = screen.load_grating(
+                self.grating_paths[grating_name]
+            )
+        return self.gratings[grating_name]
 
     def display_default_greyscale(self):
-        self.myscreen.display_greyscale(self.session_info["gray_level"])
+        self._ensure_screen().display_greyscale(self.session_info["gray_level"])
 
-    def load_grating_file(self, grating_file: str):  # best if grating_file is an absolute path
-        fname = os.path.split(grating_file)
-        logging.info(";" + str(time.time()) + ";[initialization];loading grating file;")
-        self.gratings.update({fname[1]: self.myscreen.load_grating(grating_file)})
-        print(fname[1] + " loaded")
-        logging.info(";" + str(time.time()) + ";[initialization];loaded;")
+    def display_dark_greyscale(self):
+        self._ensure_screen().display_greyscale(0)
+
+    def load_grating_file(self, grating_file: str):
+        path = Path(grating_file).expanduser().resolve()
+        logging.info(";%s;[initialization];loading_grating;%s;", time.time(), path)
+        self.grating_paths[path.name] = str(path)
+        print(f"registered {path.name}")
 
     def load_grating_dir(self, grating_directory):
-        logging.info(";" + str(time.time()) + ";[initialization];loading all gratings in directory;")
-        current_dir = os.getcwd()
-        os.chdir(grating_directory)
-        self.grating_list = os.listdir()
-        self.grating_list.sort()
-        for fname in self.grating_list:
-            self.gratings.update({fname: self.myscreen.load_grating(fname)})
-            logging.info(";" + str(time.time()) + ";[initialization];loaded;")
-            print(fname + " loaded")
-        os.chdir(current_dir)
+        directory = Path(grating_directory).expanduser().resolve()
+        for path in sorted(directory.iterdir()):
+            if path.is_file():
+                self.load_grating_file(str(path))
 
     def load_session_gratings(self):
         for filepath in self.session_info["vis_gratings"]:
             self.load_grating_file(filepath)
 
     def list_gratings(self):
-        ic(self.gratings)
+        print(list(self.grating_paths))
 
     def clear_gratings(self):
-        self.gratings = {}
-        ic(self.gratings)
+        self.gratings = OrderedDict()
+        print("cleared loaded gratings")
 
-    # call this method to display the grating. It will launch it in a separate process
-    # to run on a separate core
     def show_grating(self, grating_name):
-        logging.info(";" + str(time.time()) + ";[configuration];ready to make process;")
-        self.active_process = Process(target=self.process_function, args=(grating_name,))
-        logging.info(";" + str(time.time()) + ";[configuration];starting process;")
+        logging.info(";%s;[stimulus];%s_on;", time.time(), grating_name)
+        self._ensure_screen().display_grating(self._ensure_loaded_grating(grating_name))
+        self.display_default_greyscale()
+        logging.info(";%s;[stimulus];%s_off;", time.time(), grating_name)
+
+    def show_grating_async(self, grating_name):
+        if self.active_process is not None and self.active_process.is_alive():
+            raise ValueError("A process is already running")
+        self.close()
+        self.active_process = Process(
+            target=self._show_grating_worker,
+            args=(self.session_info, dict(self.grating_paths), grating_name),
+        )
         self.active_process.start()
 
-    # this is the function that is launched by show_grating to run in a different process
-    def process_function(self, grating_name):
-        logging.info(";" + str(time.time()) + ";[stimulus];" + str(grating_name) + "_on;")
-        self.myscreen.display_grating(self.gratings[grating_name])
-        logging.info(";" + str(time.time()) + ";[stimulus];" + str(grating_name) + "_off;")
-        self.myscreen.display_greyscale(
-            self.session_info["gray_level"]
-        )  # reset the screen to neutral gray
-        logging.info(";" + str(time.time()) + ";[stimulus];grayscale_on;")
+    @staticmethod
+    def _show_grating_worker(session_info, grating_paths, grating_name):
+        myscreen = rpg.Screen(
+            resolution=session_info["screen_resolution"],
+            background=session_info["gray_level"],
+        )
+        try:
+            grating = myscreen.load_grating(grating_paths[grating_name])
+            myscreen.display_grating(grating)
+            myscreen.display_greyscale(session_info["gray_level"])
+        finally:
+            myscreen.close()
+
+    def close(self):
+        if self.myscreen is not None:
+            self.myscreen.close()
+            self.myscreen = None
 
     def __del__(self):
-        self.myscreen.close()
+        self.close()
 
     def loop_grating(self, grating_name: str, duration: float):
-        pass
+        start = time.perf_counter()
+        while time.perf_counter() - start < duration:
+            self.show_grating(grating_name)
+            remaining = duration - (time.perf_counter() - start)
+            if remaining <= 0:
+                break
+            time.sleep(min(self.session_info["inter_grating_interval"], remaining))

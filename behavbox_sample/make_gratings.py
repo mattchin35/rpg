@@ -1,26 +1,43 @@
-from pathlib import Path
+from session_info import DEFAULT_SCREEN_RESOLUTION, GRATINGS_DIR, TEST_DURATIONS
 
 import rpg
 
-gratings_dir = Path("/home/pi/gratings")  # './dummy_vis'
 
-# options = {"duration": 2, "angle": 90, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating("~/test_grating.dat", options)
-#
-# options = {"duration": 2, "angle": 0, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating("~/test_grating.dat", options)
+def build_test_gratings() -> None:
+    GRATINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# options = {"duration": .5, "angle": 90, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "vertical_grating_.5s.dat", options)
-#
-# options = {"duration": .5, "angle": 0, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "horizontal_grating_.5s.dat", options)
+    for duration in TEST_DURATIONS:
+        vertical_options = {
+            "duration": duration,
+            "angle": 90,
+            "spac_freq": 0.2,
+            "temp_freq": 1,
+            "resolution": DEFAULT_SCREEN_RESOLUTION,
+        }
+        rpg.build_grating(
+            str(GRATINGS_DIR / f"vertical_grating_{duration}s.dat"),
+            vertical_options,
+        )
 
-durations = [0.5, 1, 2]
+        horizontal_options = {
+            "duration": duration,
+            "angle": 0,
+            "spac_freq": 0.2,
+            "temp_freq": 1,
+            "resolution": DEFAULT_SCREEN_RESOLUTION,
+        }
+        rpg.build_grating(
+            str(GRATINGS_DIR / f"horizontal_grating_{duration}s.dat"),
+            horizontal_options,
+        )
 
-for duration in durations:
-    options = {"duration": duration, "angle": 90, "spac_freq": 0.2, "temp_freq": 1}
-    rpg.build_grating(gratings_dir / f"vertical_grating_{duration}s.dat", options)
 
-    options = {"duration": duration, "angle": 0, "spac_freq": 0.2, "temp_freq": 1}
-    rpg.build_grating(gratings_dir / f"horizontal_grating_{duration}s.dat", options)
+def main() -> None:
+    print(f"Building test gratings in {GRATINGS_DIR}")
+    print(f"Using resolution {DEFAULT_SCREEN_RESOLUTION}")
+    build_test_gratings()
+    print("Done")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,50 +1,47 @@
-#Test file from https://github.com/bill-connelly/rpg 
-################
-import rpg
 import time
 from pathlib import Path
-from icecream import ic
 
-gratings_dir = Path('/home/pi/gratings')  # './dummy_vis'
+from session_info import DEFAULT_SCREEN_RESOLUTION, GRATINGS_DIR
 
-# options = {"duration": 2, "angle": 90, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "test0_grating.dat", options)
-#
-# options = {"duration": 2, "angle": 0, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "test1_grating.dat", options)
-#
-# options = {"duration": .5, "angle": 90, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "test2_grating.dat", options)
-#
-# options = {"duration": .5, "angle": 0, "spac_freq": 0.2, "temp_freq": 1}
-# rpg.build_grating(gratings_dir / "test3_grating.dat", options)
+import rpg
 
-with rpg.Screen() as myscreen:
-    # grating = myscreen.load_grating(gratings_dir / "test0_grating.dat")
-    # ic("15s context_a grating - check if vertical or horizontal")
-    # grating = myscreen.load_grating(gratings_dir / "context_a/a_15.grating")
-    # myscreen.display_grating(grating)
-    # time.sleep(17)
-
-    ic("2s grating - check if horizontal")
-    grating = myscreen.load_grating(gratings_dir / "test1_grating.dat")
-    myscreen.display_grating(grating)
-    time.sleep(5)
-
-    ic(".5s grating - check if vertical")
-    grating = myscreen.load_grating(gratings_dir / "test2_grating.dat")
-    myscreen.display_grating(grating)
-    time.sleep(1)
-
-    ic(".5s grating - check if horizontal")
-    grating = myscreen.load_grating(gratings_dir / "test3_grating.dat")
-    myscreen.display_grating(grating)
-    time.sleep(1)
-
-    myscreen.display_greyscale(40)
-    time.sleep(2)
-    myscreen.display_greyscale(0)
+TEST_SEQUENCE = [
+    ("horizontal_grating_1s.dat", "Expect horizontal grating"),
+    ("vertical_grating_0.5s.dat", "Expect vertical grating"),
+    ("horizontal_grating_0.5s.dat", "Expect horizontal grating"),
+]
 
 
- # grating = myscreen.load_grating("~/second_grating.dat")
- # myscreen.display_grating(grating)
+def require_file(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing test asset {path}. Run behavbox_sample/make_gratings.py first."
+        )
+
+
+def main() -> None:
+    print(f"Using grating directory: {GRATINGS_DIR}")
+    print(f"Using screen resolution: {DEFAULT_SCREEN_RESOLUTION}")
+
+    myscreen = rpg.Screen(resolution=DEFAULT_SCREEN_RESOLUTION, background=40)
+    try:
+        myscreen.display_greyscale(40)
+        time.sleep(1)
+
+        for filename, message in TEST_SEQUENCE:
+            path = GRATINGS_DIR / filename
+            require_file(path)
+            print(message)
+            grating = myscreen.load_grating(str(path))
+            myscreen.display_grating(grating)
+            myscreen.display_greyscale(40)
+            time.sleep(1)
+
+        myscreen.display_greyscale(0)
+        time.sleep(1)
+    finally:
+        myscreen.close()
+
+
+if __name__ == "__main__":
+    main()

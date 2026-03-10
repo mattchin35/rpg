@@ -1,23 +1,8 @@
-import collections
-import logging
-import os
 import queue
-import re
-import threading
-import time
 from abc import ABC, abstractmethod
 from multiprocessing import Process, Queue
 from threading import Thread
-from typing import Dict, List, Tuple, Union
-
-import matplotlib.lines
-import matplotlib.pyplot as plt
-import numpy as np
-import pygame
-from colorama import Fore, Style
-from icecream import ic
-from transitions import Machine, State
-from transitions.extensions.states import Timeout, add_state_features
+from typing import List, Union
 
 
 class VisualStimBase(ABC):

@@ -1,12 +1,9 @@
 import logging
 import queue
-import sys
 import time
-from multiprocessing import BoundedSemaphore, Process, Queue
-from threading import Thread
-from typing import List, Tuple
+from multiprocessing import Process, Queue
+from typing import Dict, Tuple
 
-from icecream import ic
 from visualstim import VisualStim
 
 import rpg
@@ -19,180 +16,141 @@ class VisualStimMultiprocess(VisualStim):
         self.presenter_commands = Queue()
         self.stimulus_commands = Queue()
         self.t_start = time.perf_counter()
-        self.display_default_greyscale()
 
     def stimulus_A_on(self) -> None:
-        if self.active_process is not None and self.active_process.is_alive():
-            self.stimulus_commands.put("vertical_gratings")
-            ic("vertical_gratings command sent; main process gratings on")
-        else:
-            grating_name = "vertical_grating_{}s.dat".format(
-                self.session_info["grating_duration"]
-            )
-            self.loop_grating(grating_name, self.session_info["stimulus_duration"])
-
-        self.gratings_on = True
+        self._switch_or_start(
+            f"vertical_grating_{self.session_info['grating_duration']}s.dat"
+        )
 
     def stimulus_B_on(self) -> None:
-        if self.active_process is not None and self.active_process.is_alive():
-            self.stimulus_commands.put("horizontal_gratings")
-            ic("horizontal_gratings command sent; main process gratings on")
-        else:
-            grating_name = "horizontal_grating_{}s.dat".format(
-                self.session_info["grating_duration"]
-            )
-            self.loop_grating(grating_name, self.session_info["stimulus_duration"])
+        self._switch_or_start(
+            f"horizontal_grating_{self.session_info['grating_duration']}s.dat"
+        )
 
+    def _switch_or_start(self, grating_name: str) -> None:
+        if self.active_process is not None and self.active_process.is_alive():
+            self.stimulus_commands.put(grating_name)
+            print(f"queued switch to {grating_name}")
+        else:
+            self.loop_grating(grating_name, self.session_info["stimulus_duration"])
         self.gratings_on = True
 
     def display_default_greyscale(self):
         if self.active_process is not None and self.active_process.is_alive():
             self.stimulus_commands.put("default_greyscale")
         else:
-            self.myscreen.display_greyscale(self.session_info["gray_level"])
-
+            super().display_default_greyscale()
         self.gratings_on = False
-        ic("main process gratings off")
-
-    def _display_default_greyscale(self):
-        self.myscreen.display_greyscale(self.session_info["gray_level"])
-        self.gratings_on = False
-        ic("secondary process gratings off")
+        print("main process gratings off")
 
     def display_dark_greyscale(self):
         if self.active_process is not None and self.active_process.is_alive():
             self.stimulus_commands.put("dark_greyscale")
         else:
-            self.myscreen.display_greyscale(0)
-
+            super().display_dark_greyscale()
         self.gratings_on = False
-        ic("main process gratings off")
-
-    def _display_dark_greyscale(self):
-        self.myscreen.display_greyscale(0)
-        self.gratings_on = False
-        ic("secondary process gratings off")
+        print("main process gratings off")
 
     def loop_grating(self, grating_name: str, stimulus_duration: float):
-        logging.info(";" + str(time.time()) + ";[configuration];ready to make process;")
-        if self.active_process is not None and self.active_process.is_alive():
-            raise ValueError("A Process is already running!! Time to debug")
-
-        self.active_process = Process(
-            target=self._loop_grating,
-            args=(grating_name, self.stimulus_commands, self.presenter_commands),
+        logging.info(
+            ";%s;[configuration];starting_process;%s;", time.time(), grating_name
         )
-        logging.info(";" + str(time.time()) + ";[configuration];starting process;")
+        if self.active_process is not None and self.active_process.is_alive():
+            raise ValueError("A process is already running")
+
+        self.close()
+        self.active_process = Process(
+            target=self._loop_grating_worker,
+            args=(
+                self.session_info,
+                dict(self.grating_paths),
+                grating_name,
+                stimulus_duration,
+                self.stimulus_commands,
+                self.presenter_commands,
+            ),
+        )
         self.gratings_on = True
         self.t_start = time.perf_counter()
         self.active_process.start()
 
-    def _loop_grating(self, grating_name: str, in_queue: Queue, out_queue: Queue):
-        logging.info(
-            ";" + str(time.time()) + ";[stimulus];" + str(grating_name) + "loop_start;"
+    @staticmethod
+    def _loop_grating_worker(
+        session_info,
+        grating_paths: Dict[str, str],
+        grating_name: str,
+        stimulus_duration: float,
+        in_queue: Queue,
+        out_queue: Queue,
+    ):
+        logging.info(";%s;[stimulus];%s_loop_start;", time.time(), grating_name)
+        myscreen = rpg.Screen(
+            resolution=session_info["screen_resolution"],
+            background=session_info["gray_level"],
         )
-        self.empty_stimulus_queue()
-        self.gratings_on = (
-            True  # the multiprocess loop can't access the original process variable
-        )
-        ic("secondary process gratings on")
-        t_start = time.perf_counter()
-        while (
-            self.gratings_on
-            and time.perf_counter() - t_start < self.session_info["stimulus_duration"]
-        ):
-            # stim on
-            logging.info(
-                ";" + str(time.time()) + ";[stimulus];" + str(grating_name) + "_on;"
-            )
-            out_queue.put("turn_sounds_on")
-            self.myscreen.display_grating(self.gratings[grating_name])
-
-            # stim off
-            logging.info(";" + str(time.time()) + ";[stimulus];grayscale_on;")
-            out_queue.put("turn_sounds_off")
-            # out_queue.put('turn_stimulus_C_on')
-            self.myscreen.display_greyscale(self.session_info["gray_level"])
-
-            if (
-                self.gratings_on
-                and time.perf_counter() - t_start
-                < self.session_info["stimulus_duration"]
-            ):
-                sleeptime = min(
-                    self.session_info["inter_grating_interval"],
-                    self.session_info["stimulus_duration"]
-                    - (time.perf_counter() - t_start),
-                )
-                time.sleep(sleeptime)
-                # time.sleep(self.session_info["inter_grating_interval"])
-
-            else:
-                ic(
-                    "ending stimulus loop with time",
-                    time.perf_counter() - t_start,
-                    "or gratings_on",
-                    self.gratings_on,
-                )
-                break
-
-            grating_name, t_start = self.check_in_queue(in_queue, grating_name, t_start)
-
-        self.gratings_on = False
-        self.empty_stimulus_queue()
-        ic("secondary process gratings off")
-        out_queue.put("stimulus_process_done")
-        # out_queue.put('reset_stimuli')
-        # out_queue.put('sounds_off')
-        # out_queue.put('turn_stimulus_C_on')
-        ic("stimulus loop_grating_process done", time.perf_counter() - t_start)
-        logging.info(
-            ";" + str(time.time()) + ";[stimulus];" + str(grating_name) + "loop_end;"
-        )
-
-    def check_in_queue(
-        self, in_queue: Queue, grating_name: str, t_start: float
-    ) -> Tuple[str, float]:
         try:
-            while True:  # this loop will end when the queue is empty
-                c = in_queue.get(block=False)
-                ic(c, "command received in _loop_grating")
-                if c in ["default_greyscale", "gratings_off"]:
-                    self._display_default_greyscale()
-                    ic("ending stimulus loop with default greyscale")
-                    self.gratings_on = False
-                    break
-                elif c == "dark_greyscale":
-                    ic("ending stimulus loop with dark greyscale")
-                    self._display_dark_greyscale()
-                    self.gratings_on = False
-                    break
-                elif c == "vertical_gratings":
-                    grating_name = "vertical_grating_{}s.dat".format(
-                        self.session_info["grating_duration"]
-                    )
-                    ic("abbrev stimulus time", time.perf_counter() - t_start)
-                    t_start = time.perf_counter()
-                elif c == "horizontal_gratings":
-                    grating_name = "horizontal_grating_{}s.dat".format(
-                        self.session_info["grating_duration"]
-                    )
-                    ic("abbrev stimulus time", time.perf_counter() - t_start)
-                    t_start = time.perf_counter()
-                else:
-                    raise ValueError("Unknown command: " + str(c))
+            gratings = {
+                name: myscreen.load_grating(path)
+                for name, path in grating_paths.items()
+            }
+            gratings_on = True
+            t_start = time.perf_counter()
+            while gratings_on and time.perf_counter() - t_start < stimulus_duration:
+                out_queue.put(f"show:{grating_name}")
+                myscreen.display_grating(gratings[grating_name])
+                myscreen.display_greyscale(session_info["gray_level"])
 
-        except queue.Empty:
-            pass
+                if time.perf_counter() - t_start >= stimulus_duration:
+                    break
 
-        return grating_name, t_start
+                try:
+                    while True:
+                        command = in_queue.get(block=False)
+                        if command in grating_paths:
+                            grating_name = command
+                            t_start = time.perf_counter()
+                        elif command == "default_greyscale":
+                            myscreen.display_greyscale(session_info["gray_level"])
+                            gratings_on = False
+                            break
+                        elif command == "dark_greyscale":
+                            myscreen.display_greyscale(0)
+                            gratings_on = False
+                            break
+                        elif command == "gratings_off":
+                            gratings_on = False
+                            break
+                        else:
+                            raise ValueError(f"Unknown command: {command}")
+                except queue.Empty:
+                    pass
+
+                if gratings_on:
+                    remaining = stimulus_duration - (time.perf_counter() - t_start)
+                    if remaining > 0:
+                        time.sleep(
+                            min(session_info["inter_grating_interval"], remaining)
+                        )
+
+            out_queue.put("stimulus_process_done")
+        finally:
+            myscreen.close()
 
     def end_gratings_process(self):
-        # join the process and empty any remaining commands
         if self.active_process is not None and self.active_process.is_alive():
             self.stimulus_commands.put("gratings_off")
             self.active_process.join()
-            ic("full process time", time.perf_counter() - self.t_start)
-
+            print(f"full process time {time.perf_counter() - self.t_start:.3f}s")
+        self.active_process = None
         self.gratings_on = False
         self.empty_stimulus_queue()
+
+
+def drain_presenter_queue(presenter_commands: Queue) -> Tuple[str, ...]:
+    messages = []
+    try:
+        while True:
+            messages.append(presenter_commands.get(block=False))
+    except queue.Empty:
+        pass
+    return tuple(messages)
