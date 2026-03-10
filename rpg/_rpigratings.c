@@ -1521,6 +1521,5 @@ static struct PyModuleDef _rpigratings_definition = {
 
 
 PyMODINIT_FUNC PyInit__rpigratings(void) {
-    Py_Initialize();
     return PyModule_Create(&_rpigratings_definition);
 }
