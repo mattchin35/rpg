@@ -201,7 +201,9 @@ static PyObject* py_displaygrating(PyObject* self, PyObject* args){
     double* grat_info = display_grating(grating_data,fb0_pointer,trig_pin,colormode);
     if (grat_info == NULL) {
         free(grat_info);
-        PyErr_Format(PyExc_KeyboardInterrupt, "Key pressed while waiting for pulse - or maybe a very weird error?");
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_KeyboardInterrupt, "Key pressed while waiting for pulse - or maybe a very weird error?");
+        }
  	return NULL;
     } else {
         PyObject* return_tuple = Py_BuildValue("(ddi)",*grat_info,*(grat_info+1),start_time);
@@ -232,6 +234,9 @@ static PyObject* py_displayraw(PyObject* self, PyObject* args){
     float* raw_info = display_raw(raw_data, fb0_pointer, trig_pin, colormode);
     if (raw_info == 0) {
         free(raw_info);
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
         Py_RETURN_NONE;
     } else {
         PyObject* return_tuple = Py_BuildValue("(ddi)", *raw_info, *(raw_info+1), start_time);

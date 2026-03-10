@@ -12,11 +12,14 @@ rpygrating_module = Extension(
     sources=[
         "rpg/_rpigratings.c",
         "rpg/rpg_common.c",
+        "rpg/rpg_gpio_legacy.c",
         "rpg/rpg_stimulus.c",
+        "rpg/rpg_display_backend.c",
         "rpg/rpg_display_legacy.c",
+        "rpg/rpg_display_drm.c",
     ],
     extra_compile_args=["-O3"],
-    libraries=["wiringPi"],
+    libraries=["dl"],
 )
 
 

@@ -98,7 +98,7 @@ float std_long(long a[], int n) {
     return (float) sqrt(error_sum / n);
 }
 
-int get_refresh_rate(void) {
+int legacy_get_refresh_rate(void) {
     int fb = open("/dev/fb0", O_RDWR);
     int n_reps = 11;
     struct timespec times[n_reps];
@@ -125,7 +125,7 @@ double gaussian(int radius, int sigma) {
     return exp(-((radius * radius) / (double) (2 * sigma * sigma)));
 }
 
-void flip_buffer(fb_config* fb0){
+void legacy_flip_buffer(fb_config* fb0){
     fb0->current_buffer = !fb0->current_buffer;
     int fd = open("/dev/vcio", O_RDWR | O_SYNC);
     if(fd == -1){
@@ -155,7 +155,7 @@ void flip_buffer(fb_config* fb0){
     close(fd);
 }
 
-int* get_current_offset(fb_config fb0){
+int* legacy_get_current_offset(fb_config fb0){
     int fd = open("/dev/vcio", O_RDWR | O_SYNC);
     if(fd == -1){
         perror("VCIO OPEN ERROR: ");

@@ -1,6 +1,6 @@
 #include "rpg_legacy.h"
 
-int kbhit(void) {
+int legacy_kbhit(void) {
     static const int STDIN = 0;
     static bool is_init = false;
 
@@ -18,13 +18,13 @@ int kbhit(void) {
     return bytesWaiting;
 }
 
-float* display_raw(void *frame_data, fb_config* fb0, int trig_pin, int colormode) {
-    pinMode(FRAMEOUTPIN, OUTPUT);
-    digitalWrite(FRAMEOUTPIN, LOW);
+float* legacy_display_raw(void *frame_data, fb_config* fb0, int trig_pin, int colormode) {
+    rpg_legacy_gpio_pin_mode(FRAMEOUTPIN, RPG_GPIO_OUTPUT);
+    rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
     if (trig_pin > 0) {
-        pinMode(trig_pin, INPUT);
-        while (digitalRead(trig_pin) == 0) {
-            if (kbhit()) {
+        rpg_legacy_gpio_pin_mode(trig_pin, RPG_GPIO_INPUT);
+        while (rpg_legacy_gpio_digital_read(trig_pin) == 0) {
+            if (legacy_kbhit()) {
                 return 0;
             }
         }
@@ -72,13 +72,13 @@ float* display_raw(void *frame_data, fb_config* fb0, int trig_pin, int colormode
         if(t == 0){
             ioctl(fb0->framebuffer, FBIO_WAITFORVSYNC, &dummy);
         }
-        flip_buffer(fb0);
+        legacy_flip_buffer(fb0);
         for (waits = 0; waits < refresh_per_frame; waits++) {
             ioctl(fb0->framebuffer, FBIO_WAITFORVSYNC, &dummy);
             if (waits == 0) {
-                digitalWrite(FRAMEOUTPIN, HIGH);
+                rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_HIGH);
                 usleep(2000);
-                digitalWrite(FRAMEOUTPIN, LOW);
+                rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
             }
         }
         if (t != 0) {
@@ -90,13 +90,13 @@ float* display_raw(void *frame_data, fb_config* fb0, int trig_pin, int colormode
     return frame_duration_mean;
 }
 
-double* display_grating(void* frame_data, fb_config* fb0, int trig_pin, int colormode){
-    pinMode(FRAMEOUTPIN, OUTPUT);
-    digitalWrite(FRAMEOUTPIN, LOW);
+double* legacy_display_grating(void* frame_data, fb_config* fb0, int trig_pin, int colormode){
+    rpg_legacy_gpio_pin_mode(FRAMEOUTPIN, RPG_GPIO_OUTPUT);
+    rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
     if (trig_pin > 0) {
-        pinMode(trig_pin, INPUT);
-        while (digitalRead(trig_pin) == 0) {
-            if (kbhit()) {
+        rpg_legacy_gpio_pin_mode(trig_pin, RPG_GPIO_INPUT);
+        while (rpg_legacy_gpio_digital_read(trig_pin) == 0) {
+            if (legacy_kbhit()) {
                 return NULL;
             }
         }
@@ -148,11 +148,11 @@ double* display_grating(void* frame_data, fb_config* fb0, int trig_pin, int colo
         if(t == 0){
             ioctl(fb0->framebuffer, FBIO_WAITFORVSYNC, &dummy);
         }
-        flip_buffer(fb0);
+        legacy_flip_buffer(fb0);
         ioctl(fb0->framebuffer, FBIO_WAITFORVSYNC, &dummy);
-        digitalWrite(FRAMEOUTPIN, HIGH);
+        rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_HIGH);
         usleep(2000);
-        digitalWrite(FRAMEOUTPIN, LOW);
+        rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
         if (t != 0) {
             timings[t - 1] = cmp_times(frame_end, frame_start);
         }
@@ -162,7 +162,7 @@ double* display_grating(void* frame_data, fb_config* fb0, int trig_pin, int colo
     return frame_duration_mean;
 }
 
-int display_color(fb_config* fb0, uint16_t color_16, uint24_t color_24, int colormode, int blocking){
+int legacy_display_color(fb_config* fb0, uint16_t color_16, uint24_t color_24, int colormode, int blocking){
     __u32 dummy = 0;
     uint16_t *write_loc_16;
     uint24_t *write_loc_24;
@@ -185,17 +185,17 @@ int display_color(fb_config* fb0, uint16_t color_16, uint24_t color_24, int colo
         }
     }
 
-    flip_buffer(fb0);
+    legacy_flip_buffer(fb0);
     if(blocking){
         ioctl(fb0->framebuffer, FBIO_WAITFORVSYNC, &dummy);
-        digitalWrite(FRAMEOUTPIN, HIGH);
+        rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_HIGH);
         usleep(2000);
-        digitalWrite(FRAMEOUTPIN, LOW);
+        rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
     }
     return 0;
 }
 
-int is_current_resolution(int xres, int yres){
+int legacy_is_current_resolution(int xres, int yres){
     int fd = open("/dev/vcio", 0);
     if(fd == -1){
         PyErr_SetString(PyExc_OSError, "Could not open /dev/vcio device");
@@ -220,8 +220,8 @@ int is_current_resolution(int xres, int yres){
     return ((property[5] == xres) && (property[6] == yres));
 }
 
-fb_config init(int width, int height, int colormode){
-    wiringPiSetup();
+fb_config legacy_init(int width, int height, int colormode){
+    rpg_legacy_gpio_setup();
 
     fb_config fb0;
     fb0.current_buffer = 0;
@@ -274,7 +274,7 @@ fb_config init(int width, int height, int colormode){
         fb0.error = 1;
         return fb0;
     }
-    int resolution_status = is_current_resolution(width, height);
+    int resolution_status = legacy_is_current_resolution(width, height);
     if(resolution_status == 0){
         printf("The linux framebuffer does not support the requested resolution\n"
                "Attepting to reset resolution settings...\n");
@@ -307,13 +307,15 @@ fb_config init(int width, int height, int colormode){
         fb0.error = 1;
         return fb0;
     }
+    fb0.backend_type = RPG_BACKEND_LEGACY_FB;
+    fb0.backend_state = NULL;
     fb0.error = 0;
     return fb0;
 }
 
-int close_display(fb_config* fb0){
+int legacy_close_display(fb_config* fb0){
     if(fb0->current_buffer == 1){
-        flip_buffer(fb0);
+        legacy_flip_buffer(fb0);
     }
     munmap(fb0->map, 2 * fb0->size);
     char fbset_str[80];
