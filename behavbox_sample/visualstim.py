@@ -5,6 +5,7 @@ from multiprocessing import Process, Queue
 from pathlib import Path
 from typing import Dict, Optional
 
+import _sample_path
 from base_classes import VisualStimBase
 
 import rpg

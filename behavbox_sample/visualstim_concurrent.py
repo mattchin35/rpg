@@ -4,6 +4,7 @@ import time
 from multiprocessing import Process, Queue
 from typing import Dict, Tuple
 
+import _sample_path
 from visualstim import VisualStim
 
 import rpg

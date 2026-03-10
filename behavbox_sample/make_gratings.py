@@ -1,6 +1,9 @@
+import _sample_path
 from session_info import DEFAULT_SCREEN_RESOLUTION, GRATINGS_DIR, TEST_DURATIONS
 
 import rpg
+
+REPO_ROOT = _sample_path.REPO_ROOT
 
 
 def build_test_gratings() -> None:

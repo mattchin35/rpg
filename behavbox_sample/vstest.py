@@ -1,9 +1,12 @@
 import time
 from pathlib import Path
 
+import _sample_path
 from session_info import DEFAULT_SCREEN_RESOLUTION, GRATINGS_DIR
 
 import rpg
+
+REPO_ROOT = _sample_path.REPO_ROOT
 
 TEST_SEQUENCE = [
     ("horizontal_grating_1s.dat", "Expect horizontal grating"),

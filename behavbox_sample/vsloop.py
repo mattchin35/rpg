@@ -1,7 +1,10 @@
 import time
 
+import _sample_path
 from session_info import make_session_info
 from visualstim_concurrent import VisualStimMultiprocess, drain_presenter_queue
+
+REPO_ROOT = _sample_path.REPO_ROOT
 
 
 def alternate_process(t_stimulus: int):
