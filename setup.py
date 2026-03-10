@@ -9,7 +9,12 @@ ROOT = Path(__file__).resolve().parent
 
 rpygrating_module = Extension(
     "_rpigratings",
-    sources=["rpg/_rpigratings.c"],
+    sources=[
+        "rpg/_rpigratings.c",
+        "rpg/rpg_common.c",
+        "rpg/rpg_stimulus.c",
+        "rpg/rpg_display_legacy.c",
+    ],
     extra_compile_args=["-O3"],
     libraries=["wiringPi"],
 )
