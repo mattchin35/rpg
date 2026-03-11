@@ -224,7 +224,10 @@ void * build_frame(int t, double angle, fb_config framebuffer, int wavelength, i
 
 int build_grating(char * filename, double duration, double angle, double sf, double tf, double contrast, int background, int width, int height, int waveform,
                   double percent_sigma, double percent_diameter, double percent_center_left, double percent_center_top, double percent_padding, int colormode){
-    int fps = get_refresh_rate();
+    int fps = get_refresh_rate(width, height);
+    if (fps <= 0) {
+        return 1;
+    }
     printf("Refresh rate measured as: %d hz\n", fps);
     fb_config fb0;
     fb0.width = width;
@@ -312,7 +315,12 @@ void* load_grating(char* filename, fb_config fb0){
     }
     frames = header->frames_per_cycle;
     int file_fps = header->frames_per_second;
-    int refresh_rate = get_refresh_rate();
+    int refresh_rate = get_refresh_rate((int)fb0.width, (int)fb0.height);
+    if (refresh_rate <= 0) {
+        munmap(header, sizeof(fileheader_t));
+        close(filedes);
+        return NULL;
+    }
     if (refresh_rate != file_fps) {
         printf("File generated at %d FPS, but monitor running at %d HZ. This will cause inaccurate timing \n", file_fps, refresh_rate);
     }

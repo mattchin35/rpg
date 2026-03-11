@@ -32,8 +32,16 @@ static PyObject* py_init(PyObject *self, PyObject *args) {
         return NULL;
     }
     fb_config* fb0_pointer = malloc(sizeof(fb_config)); 
+    if (fb0_pointer == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
     *fb0_pointer = init(xres,yres,colormode);
     if(fb0_pointer->error){
+        if (fb0_pointer->backend_type == RPG_BACKEND_DRM) {
+            drm_close_display(fb0_pointer);
+        }
+        free(fb0_pointer);
         return NULL;
     }
     PyObject* fb0_capsule = PyCapsule_New(fb0_pointer, "framebuffer",NULL);
@@ -88,6 +96,9 @@ static PyObject* py_loadgrating(PyObject* self, PyObject* args){
     void* grating_data = load_grating(filename,*fb0_pointer);
 
     if (grating_data == NULL) {
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
         PyErr_Format(PyExc_FileNotFoundError, "You probably mistyped the file name. Parsed as %s", filename);
  	return NULL;
     }
@@ -147,6 +158,9 @@ static PyObject* py_loadraw(PyObject* self, PyObject* args){
 
     void* raw_data = load_raw(filename);
     if (raw_data == NULL) {
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
         PyErr_Format(PyExc_FileNotFoundError, "You probably mistyped the file name. Parsed as %s", filename);
         return NULL;
     }

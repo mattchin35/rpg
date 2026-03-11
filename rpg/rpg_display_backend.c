@@ -2,15 +2,18 @@
 
 static rpg_display_backend requested_backend(void) {
     const char *backend = getenv("RPG_DISPLAY_BACKEND");
+    if (backend != NULL && strcmp(backend, "legacy") == 0) {
+        return RPG_BACKEND_LEGACY_FB;
+    }
     if (backend != NULL && strcmp(backend, "drm") == 0) {
         return RPG_BACKEND_DRM;
     }
-    return RPG_BACKEND_LEGACY_FB;
+    return RPG_BACKEND_DRM;
 }
 
-int get_refresh_rate(void) {
+int get_refresh_rate(int width, int height) {
     if (requested_backend() == RPG_BACKEND_DRM) {
-        return drm_get_refresh_rate();
+        return drm_get_refresh_rate(width, height);
     }
     return legacy_get_refresh_rate();
 }

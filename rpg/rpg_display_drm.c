@@ -151,6 +151,57 @@ static int drm_create_buffer(rpg_drm_state *state, uint32_t width, uint32_t heig
     return 0;
 }
 
+static int drm_mode_refresh_hz(const struct drm_mode_modeinfo *mode) {
+    double refresh;
+
+    if (mode == NULL) {
+        return 0;
+    }
+    if (mode->vrefresh > 0) {
+        return (int)mode->vrefresh;
+    }
+    if (mode->clock == 0 || mode->htotal == 0 || mode->vtotal == 0) {
+        return 0;
+    }
+
+    refresh = ((double)mode->clock * 1000.0) / ((double)mode->htotal * (double)mode->vtotal);
+    if (refresh <= 0.0) {
+        return 0;
+    }
+    return int_round((float)refresh);
+}
+
+static int drm_pick_mode_index(
+    struct drm_mode_modeinfo *modes,
+    uint32_t mode_count,
+    uint32_t requested_width,
+    uint32_t requested_height
+) {
+    int preferred_index = -1;
+    uint32_t mode_index;
+
+    if (mode_count == 0) {
+        return -1;
+    }
+
+    for (mode_index = 0; mode_index < mode_count; mode_index++) {
+        if (preferred_index < 0 && (modes[mode_index].type & DRM_MODE_TYPE_PREFERRED) != 0) {
+            preferred_index = (int)mode_index;
+        }
+        if (requested_width != 0 && requested_height != 0 &&
+            modes[mode_index].hdisplay == requested_width &&
+            modes[mode_index].vdisplay == requested_height) {
+            return (int)mode_index;
+        }
+    }
+
+    if (requested_width == 0 || requested_height == 0) {
+        return preferred_index >= 0 ? preferred_index : 0;
+    }
+
+    return -1;
+}
+
 static int drm_pick_connector_and_mode(
     rpg_drm_state *state,
     uint32_t requested_width,
@@ -166,6 +217,8 @@ static int drm_pick_connector_and_mode(
         struct drm_mode_get_encoder encoder;
         uint32_t *encoders = NULL;
         struct drm_mode_modeinfo *modes = NULL;
+        uint32_t *props = NULL;
+        uint64_t *prop_values = NULL;
         uint32_t mode_index;
 
         memset(&connector, 0, sizeof(connector));
@@ -180,75 +233,101 @@ static int drm_pick_connector_and_mode(
 
         encoders = calloc(connector.count_encoders, sizeof(uint32_t));
         modes = calloc(connector.count_modes, sizeof(struct drm_mode_modeinfo));
-        if (encoders == NULL || modes == NULL) {
+        props = calloc(connector.count_props, sizeof(uint32_t));
+        prop_values = calloc(connector.count_props, sizeof(uint64_t));
+        if (encoders == NULL || modes == NULL ||
+            (connector.count_props > 0 && (props == NULL || prop_values == NULL))) {
             free(encoders);
             free(modes);
+            free(props);
+            free(prop_values);
             PyErr_NoMemory();
             return -1;
         }
 
         connector.encoders_ptr = (uintptr_t)encoders;
         connector.modes_ptr = (uintptr_t)modes;
+        connector.props_ptr = (uintptr_t)props;
+        connector.prop_values_ptr = (uintptr_t)prop_values;
         if (drm_ioctl_checked(state->card_fd, DRM_IOCTL_MODE_GETCONNECTOR, &connector, "DRM get connector details failed")) {
             free(encoders);
             free(modes);
+            free(props);
+            free(prop_values);
             return -1;
         }
 
         if (connector.connection != DRM_MODE_CONNECTED) {
             free(encoders);
             free(modes);
+            free(props);
+            free(prop_values);
             continue;
         }
 
-        for (mode_index = 0; mode_index < connector.count_modes; mode_index++) {
-            if (modes[mode_index].hdisplay != requested_width || modes[mode_index].vdisplay != requested_height) {
-                continue;
-            }
-
-            memset(&encoder, 0, sizeof(encoder));
-            encoder.encoder_id = connector.encoder_id != 0 ? connector.encoder_id : encoders[0];
-            if (drm_ioctl_checked(state->card_fd, DRM_IOCTL_MODE_GETENCODER, &encoder, "DRM get encoder failed")) {
-                free(encoders);
-                free(modes);
-                return -1;
-            }
-
-            state->connector_id = connector.connector_id;
-            state->encoder_id = encoder.encoder_id;
-            state->crtc_id = encoder.crtc_id != 0 ? encoder.crtc_id : crtc_ids[0];
-            state->mode = modes[mode_index];
-
-            if (state->crtc_id == 0 && encoder.possible_crtcs != 0) {
-                uint32_t crtc_index;
-                for (crtc_index = 0; crtc_index < crtc_count; crtc_index++) {
-                    if (encoder.possible_crtcs & (1u << crtc_index)) {
-                        state->crtc_id = crtc_ids[crtc_index];
-                        break;
-                    }
-                }
-            }
-
+        mode_index = (uint32_t)drm_pick_mode_index(
+            modes,
+            connector.count_modes,
+            requested_width,
+            requested_height
+        );
+        if ((int)mode_index < 0) {
             free(encoders);
             free(modes);
-            return 0;
+            free(props);
+            free(prop_values);
+            continue;
+        }
+
+        memset(&encoder, 0, sizeof(encoder));
+        encoder.encoder_id = connector.encoder_id != 0 ? connector.encoder_id : encoders[0];
+        if (drm_ioctl_checked(state->card_fd, DRM_IOCTL_MODE_GETENCODER, &encoder, "DRM get encoder failed")) {
+            free(encoders);
+            free(modes);
+            free(props);
+            free(prop_values);
+            return -1;
+        }
+
+        state->connector_id = connector.connector_id;
+        state->encoder_id = encoder.encoder_id;
+        state->crtc_id = encoder.crtc_id != 0 ? encoder.crtc_id : crtc_ids[0];
+        state->mode = modes[mode_index];
+
+        if (state->crtc_id == 0 && encoder.possible_crtcs != 0) {
+            uint32_t crtc_index;
+            for (crtc_index = 0; crtc_index < crtc_count; crtc_index++) {
+                if (encoder.possible_crtcs & (1u << crtc_index)) {
+                    state->crtc_id = crtc_ids[crtc_index];
+                    break;
+                }
+            }
         }
 
         free(encoders);
         free(modes);
+        free(props);
+        free(prop_values);
+        return 0;
     }
 
-    PyErr_Format(
-        PyExc_OSError,
-        "No connected DRM connector reported an exact %ux%u mode",
-        requested_width,
-        requested_height
-    );
+    if (requested_width != 0 && requested_height != 0) {
+        PyErr_Format(
+            PyExc_OSError,
+            "No connected DRM connector reported an exact %ux%u mode",
+            requested_width,
+            requested_height
+        );
+    } else {
+        PyErr_SetString(PyExc_OSError, "No connected DRM connector reported a usable display mode");
+    }
     return -1;
 }
 
 static int drm_load_resources(rpg_drm_state *state, uint32_t requested_width, uint32_t requested_height) {
     struct drm_mode_card_res resources;
+    uint32_t *encoder_ids = NULL;
+    uint32_t *fb_ids = NULL;
     uint32_t *connector_ids = NULL;
     uint32_t *crtc_ids = NULL;
     int status = -1;
@@ -258,16 +337,25 @@ static int drm_load_resources(rpg_drm_state *state, uint32_t requested_width, ui
         return -1;
     }
 
+    encoder_ids = calloc(resources.count_encoders, sizeof(uint32_t));
+    fb_ids = calloc(resources.count_fbs, sizeof(uint32_t));
     connector_ids = calloc(resources.count_connectors, sizeof(uint32_t));
     crtc_ids = calloc(resources.count_crtcs, sizeof(uint32_t));
-    if ((resources.count_connectors > 0 && connector_ids == NULL) || (resources.count_crtcs > 0 && crtc_ids == NULL)) {
+    if ((resources.count_encoders > 0 && encoder_ids == NULL) ||
+        (resources.count_fbs > 0 && fb_ids == NULL) ||
+        (resources.count_connectors > 0 && connector_ids == NULL) ||
+        (resources.count_crtcs > 0 && crtc_ids == NULL)) {
+        free(encoder_ids);
+        free(fb_ids);
         free(connector_ids);
         free(crtc_ids);
         PyErr_NoMemory();
         return -1;
     }
 
+    resources.fb_id_ptr = (uintptr_t)fb_ids;
     resources.connector_id_ptr = (uintptr_t)connector_ids;
+    resources.encoder_id_ptr = (uintptr_t)encoder_ids;
     resources.crtc_id_ptr = (uintptr_t)crtc_ids;
     if (drm_ioctl_checked(state->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &resources, "DRM get resource lists failed")) {
         goto cleanup;
@@ -289,6 +377,8 @@ static int drm_load_resources(rpg_drm_state *state, uint32_t requested_width, ui
     );
 
 cleanup:
+    free(encoder_ids);
+    free(fb_ids);
     free(connector_ids);
     free(crtc_ids);
     return status;
@@ -323,10 +413,11 @@ static void drm_emit_frame_pulse(void) {
     rpg_legacy_gpio_digital_write(FRAMEOUTPIN, RPG_GPIO_LOW);
 }
 
-int drm_get_refresh_rate(void) {
+int drm_get_refresh_rate(int width, int height) {
     const char *path = resolve_drm_card_path();
     int fd = open(path, O_RDWR | O_CLOEXEC);
     rpg_drm_state state;
+    int refresh = 0;
 
     if (fd < 0) {
         set_drm_error_from_errno("Could not open DRM device for refresh-rate query");
@@ -335,15 +426,22 @@ int drm_get_refresh_rate(void) {
 
     memset(&state, 0, sizeof(state));
     state.card_fd = fd;
-    if (drm_load_resources(&state, 1280, 720) == 0 || !PyErr_Occurred()) {
-        close(fd);
-        if (state.mode.vrefresh != 0) {
-            return state.mode.vrefresh;
+    if (drm_load_resources(&state, (uint32_t)width, (uint32_t)height) == 0) {
+        refresh = drm_mode_refresh_hz(&state.mode);
+    } else {
+        PyErr_Clear();
+        memset(&state, 0, sizeof(state));
+        state.card_fd = fd;
+        if (drm_load_resources(&state, 0, 0) == 0) {
+            refresh = drm_mode_refresh_hz(&state.mode);
         }
     }
     close(fd);
+    if (refresh > 0) {
+        return refresh;
+    }
     if (!PyErr_Occurred()) {
-        PyErr_SetString(PyExc_OSError, "Unable to determine DRM refresh rate");
+        PyErr_SetString(PyExc_OSError, "Unable to determine a valid DRM refresh rate");
     }
     return -1;
 }

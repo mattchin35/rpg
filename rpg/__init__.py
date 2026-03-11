@@ -13,11 +13,11 @@ _rpigratings module, which is implemented in C for
 performance.
 
 """
-import time as t
-import os
-import sys
 import hashlib
+import os
 import random
+import sys
+import time as t
 from collections import namedtuple
 
 GratPerfRec = namedtuple("GratingPerformanceRecord",["mean_interframe","stddev_interframe","start_time"])
@@ -34,7 +34,6 @@ RGB888MODE =  0b0010
 RGB565MODE =  0b0000
 
 import _rpigratings as rpigratings
-
 
 
 def build_grating(filename, options):
@@ -306,8 +305,10 @@ class Screen:
                 raise ValueError("Colormode must be 16 or 24, not %s"%colormode.__repr__)
 
         self.background = background
-        self.capsule = rpigratings.init(resolution[0],resolution[1], colormode)
         self.colormode = colormode
+        self.capsule = None
+        self.isopen = False
+        self.capsule = rpigratings.init(resolution[0],resolution[1], colormode)
         self.isopen = True
 
     def load_grating(self,filename):
@@ -668,12 +669,16 @@ class Screen:
         Returns:
           None
         """
-        if self.isopen:
-            rpigratings.close_display(self.capsule)
-            self.isopen = False
+        if getattr(self, "isopen", False) and getattr(self, "capsule", None) is not None:
+          rpigratings.close_display(self.capsule)
+          self.capsule = None
+          self.isopen = False
 
     def __del__(self):
-        self.close()
+        try:
+          self.close()
+        except Exception:
+          pass
     def __enter__(self):
         return self
     def __exit__(self,exception_type, exception_value, traceback):

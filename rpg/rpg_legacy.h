@@ -100,7 +100,7 @@ float mean_long(long a[], int n);
 float std_long(long a[], int n);
 double gaussian(int radius, int sigma);
 
-int get_refresh_rate(void);
+int get_refresh_rate(int width, int height);
 void flip_buffer(fb_config* fb0);
 int* get_current_offset(fb_config fb0);
 
@@ -140,7 +140,7 @@ int legacy_is_current_resolution(int xres, int yres);
 fb_config legacy_init(int width, int height, int colormode);
 int legacy_close_display(fb_config* fb0);
 
-int drm_get_refresh_rate(void);
+int drm_get_refresh_rate(int width, int height);
 void drm_flip_buffer(fb_config* fb0);
 int* drm_get_current_offset(fb_config fb0);
 float* drm_display_raw(void *frame_data, fb_config* fb0, int trig_pin, int colormode);
